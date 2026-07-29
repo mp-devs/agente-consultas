@@ -1,13 +1,16 @@
 // ⚠️ GERADO por n8n/build.mjs — não edite aqui.
-// Edite n8n/lib/telefone.js e rode: node n8n/build.mjs
+// Edite a lib em n8n/lib/ e rode: node n8n/build.mjs
 // Cole o conteúdo abaixo no campo "JavaScript" do Code node.
 
+// Workflow: MP - Agente de Consultas
 // Code node: "Normalizar telefone"  (Run Once for All Items)
 // Entrada: payload do webhook do BubbleWhats.
 // Saída: alvo do casamento + fone4 (o que a busca do Bubble recebe) e a
 // consulta ao cache, para não gastar WU quando o usuário já foi identificado.
 
 // Casamento de telefone brasileiro entre o WhatsApp e o cadastro do Bubble.
+// Fonte única da verdade: os arquivos em n8n/nodes/ são gerados a partir daqui
+// por `node n8n/build.mjs` (Code node do n8n não importa módulo local).
 
 const soDigitos = (s) => String(s ?? '').replace(/\D/g, '');
 
@@ -85,14 +88,33 @@ function identificar(candidatos, alvo, meta = {}) {
   }
 
   const u = finais[0];
+  const empresas = parseEmpresas(u.empresas);
   return {
     status: 'ok',
     fk_usuario: u.usuario_id,
-    fk_empresa: u.empresa_id,
     usuario_nome: u.usuario_nome,
-    empresa_nome: u.empresa_nome,
+    // Fazenda logada no app: preferência de busca, não fronteira.
+    fk_empresa_atual: u.empresa_atual_id,
+    empresa_atual_nome: u.empresa_atual_nome,
+    // Fronteira de permissão de verdade.
+    empresas,
     match: u.forca,
   };
+}
+
+// Coluna "empresas" vem como "id:Nome^id:Nome" (o ':' separa só o primeiro
+// pedaço, porque nome de fazenda pode conter ':').
+function parseEmpresas(txt) {
+  return String(txt ?? '')
+    .split('^')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const i = p.indexOf(':');
+      return i === -1
+        ? { id: p, nome: '' }
+        : { id: p.slice(0, i).trim(), nome: p.slice(i + 1).trim() };
+    });
 }
 
 // Resposta do Bubble no padrão do projeto: "colunas" + "itens" (| e ;;).
@@ -124,20 +146,20 @@ if (!alvo || !alvo.ddd) {
   return [{ json: { status: 'telefone_invalido', telefone: soDigitos(remetente) } }];
 }
 
-const telefone = soDigitos(remetente);
+const telefoneLimpo = soDigitos(remetente);
 const cache = $getWorkflowStaticData('global');
 cache.auth = cache.auth || {};
 const TTL_MS = 12 * 60 * 60 * 1000; // sessão de 12 h (ver 05-seguranca-multitenant)
 
-const guardado = cache.auth[telefone];
+const guardado = cache.auth[telefoneLimpo];
 if (guardado && Date.now() - guardado.ts < TTL_MS) {
-  return [{ json: { ...guardado.dados, telefone, cache_hit: true } }];
+  return [{ json: { ...guardado.dados, telefone: telefoneLimpo, cache_hit: true } }];
 }
-delete cache.auth[telefone]; // expirado
+delete cache.auth[telefoneLimpo]; // expirado
 
 return [{
   json: {
-    telefone,
+    telefone: telefoneLimpo,
     ddd: alvo.ddd,
     fone8: alvo.fone8,
     fone4: alvo.fone8.slice(-4), // sobrevive à máscara do cadastro

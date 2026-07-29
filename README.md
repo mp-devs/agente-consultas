@@ -28,6 +28,8 @@ fazenda vindos do Bubble (app `aprimoreagro`, ~300 fazendas, aquicultura).
 ## Regras de negócio
 
 - Cliente só fala em **tanque** (nunca lote); 1 lote = 1 tanque.
+- Produtor consulta **todas as fazendas** a que tem acesso; a fazenda logada
+  no app é só a preferência de busca ([docs/multi-fazenda.md](docs/multi-fazenda.md)).
 - Nomes de tanque são livres ("Berçário 03", "Desova 01") e únicos.
 - Sempre usar o **lote povoado**.
 - Não expor: distinção lote/biometria, dias de cultivo, previsão de despesca.
@@ -69,8 +71,9 @@ Trava de piloto: só o número `554884115045` é processado.
 
 ```
 docs/                          specs dos endpoints e do fluxo
-n8n/lib/telefone.js            lógica de casamento de telefone (fonte da verdade)
-n8n/lib/telefone.test.js       21 testes, incluindo os de vazamento
+n8n/lib/telefone.js            casamento de telefone WhatsApp x cadastro
+n8n/lib/escopo.js              multi-fazenda: escopo, preferência e rótulo
+n8n/lib/*.test.js              35 testes, incluindo os de vazamento
 n8n/nodes/*.js                 GERADO — o que se cola nos Code nodes do n8n
 n8n/build.mjs                  gera n8n/nodes/ a partir da lib
 ```

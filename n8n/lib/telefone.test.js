@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { normalizar, separar, casa, identificar, parseLista } = require('./telefone');
+const { normalizar, separar, casa, identificar, parseLista, parseEmpresas } = require('./telefone');
 
 const PABLO = { ddd: '48', fone8: '84115045' }; // vindo de 554884115045
 
@@ -69,14 +69,15 @@ test('casa: números colados não criam falso positivo', () => {
 
 const U = (id, telefones, extra = {}) => ({
   usuario_id: id, usuario_nome: 'U' + id, telefones,
-  empresa_id: 'E' + id, empresa_nome: 'Fazenda ' + id, ...extra,
+  empresa_atual_id: 'E' + id, empresa_atual_nome: 'Fazenda ' + id,
+  empresas: 'E' + id + ':Fazenda ' + id, ...extra,
 });
 
 test('identificar: caso feliz', () => {
   const r = identificar([U('1', '(48) 98411-5045')], PABLO);
   assert.equal(r.status, 'ok');
   assert.equal(r.fk_usuario, '1');
-  assert.equal(r.fk_empresa, 'E1');
+  assert.equal(r.fk_empresa_atual, 'E1');
   assert.equal(r.match, 'forte');
 });
 
@@ -133,10 +134,11 @@ test('ponta a ponta: resposta real do Bubble com telefones mascarados', () => {
   // O que a busca `telefones contains "5045"` devolveria: o Pablo e um
   // vizinho que por acaso também termina em 5045, mas em outro DDD.
   const resp = {
-    colunas: 'usuario_id|usuario_nome|telefones|empresa_id|empresa_nome',
+    colunas: 'usuario_id|usuario_nome|telefones|empresa_atual_id|empresa_atual_nome|empresas',
     itens: [
-      '1699a|Pablo|(48) 8411-5045, (48) 3333-4444|1699e1|Fazenda Camarão',
-      '1699b|Marcos|(11) 99999-5045|1699e2|Sítio do Vizinho',
+      '1699a|Pablo|(48) 8411-5045, (48) 3333-4444|1699e1|Fazenda Camarão|' +
+        '1699e1:Fazenda Camarão^1699e2:Sítio das Águas',
+      '1699b|Marcos|(11) 99999-5045|1699e9|Sítio do Vizinho|1699e9:Sítio do Vizinho',
     ].join(';;'),
     qtd: 2,
   };
@@ -144,5 +146,21 @@ test('ponta a ponta: resposta real do Bubble com telefones mascarados', () => {
   const r = identificar(linhas, PABLO, { truncado: resp.qtd > linhas.length });
   assert.equal(r.status, 'ok');
   assert.equal(r.fk_usuario, '1699a');
-  assert.equal(r.empresa_nome, 'Fazenda Camarão');
+  assert.equal(r.fk_empresa_atual, '1699e1');
+  assert.equal(r.empresa_atual_nome, 'Fazenda Camarão');
+  // O escopo é a lista inteira, não só a fazenda logada.
+  assert.deepEqual(r.empresas, [
+    { id: '1699e1', nome: 'Fazenda Camarão' },
+    { id: '1699e2', nome: 'Sítio das Águas' },
+  ]);
+});
+
+test('parseEmpresas: lista, vazio e nome com dois-pontos', () => {
+  assert.deepEqual(parseEmpresas('e1:Boa Vista^e2:Águas'), [
+    { id: 'e1', nome: 'Boa Vista' },
+    { id: 'e2', nome: 'Águas' },
+  ]);
+  assert.deepEqual(parseEmpresas(''), []);
+  assert.deepEqual(parseEmpresas(undefined), []);
+  assert.deepEqual(parseEmpresas('e1:Fazenda: a boa'), [{ id: 'e1', nome: 'Fazenda: a boa' }]);
 });

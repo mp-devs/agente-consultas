@@ -6,7 +6,7 @@ qualquer testador vê a fazenda do Pablo.
 
 Código pronto e testado: [`n8n/lib/telefone.js`](../n8n/lib/telefone.js)
 (fonte) → [`n8n/nodes/`](../n8n/nodes) (o que se cola no n8n).
-`npm test` roda 21 casos, incluindo os de vazamento.
+`npm test` roda 35 casos, incluindo os de vazamento.
 
 ---
 
@@ -82,9 +82,30 @@ Campos devolvidos (padrão `colunas` + `itens` do projeto, `|` entre colunas e
 
 | Campo | Valor no editor |
 |---|---|
-| `colunas` (text) | `usuario_id|usuario_nome|telefones|empresa_id|empresa_nome` |
-| `itens` (text) | `Search for Users:items until #50 :format as text`, com o item formatado como `This User's unique id \| This User's nome \| This User's telefones \| This User's empresa's unique id \| This User's empresa's nome` e delimitador `;;` |
+| `colunas` (text) | `usuario_id|usuario_nome|telefones|empresa_atual_id|empresa_atual_nome|empresas` |
+| `itens` (text) | `Search for Users:items until #50 :format as text` (conteúdo abaixo), delimitador `;;` |
 | `qtd` (number) | `Search for Users:count` |
+
+Conteúdo de cada item no `:format as text`, separado por `|`:
+
+1. `This User's unique id`
+2. `This User's nome`
+3. `This User's whatsapp` ← o campo mascarado, sem tratamento
+4. `This User's empresa's unique id` ← a fazenda **logada**
+5. `This User's empresa's nome`
+6. `This User's fk_lista_empresas:format as text` ← a lista **autorizada**
+
+O item 6 é um `:format as text` dentro do outro. Na caixinha dele:
+
+- **Conteúdo:** `This Empresa's unique id` + `:` + `This Empresa's nome`
+- **Delimitador:** `^`
+
+Resultado: `1699e1:Fazenda Boa Vista^1699e2:Sítio das Águas`. O n8n desmonta
+isso (`parseEmpresas`, testado, inclusive com nome de fazenda contendo `:`).
+
+> **Por que os dois** — `empresa` é a fazenda logada no momento, que serve de
+> preferência de busca; `fk_lista_empresas` é a fronteira de permissão de
+> verdade. Ver [`multi-fazenda.md`](multi-fazenda.md).
 
 Três detalhes que não são decorativos:
 
@@ -98,15 +119,10 @@ Três detalhes que não são decorativos:
   é substring solta, um "48" vindo de outro trecho do texto casaria à toa. O
   DDD é conferido no n8n, com adjacência garantida.
 
-**Dois pontos a confirmar no editor** (não tenho acesso ao schema):
-
-1. O nome real do campo de telefone do `User`. Se houver mais de um
-   (ex.: `telefone` e `celular`), concatene os dois na coluna `telefones`
-   separados por vírgula — o n8n já trata campo com vários números.
-2. O campo que liga `User` → empresa. A doc antiga menciona
-   `fk_lista_empresas` (lista, usuário pode ter mais de uma fazenda). Se for
-   lista, use `:first item` por enquanto e me avise: usuário multi-fazenda
-   precisa que o agente pergunte "qual fazenda?", e isso é escopo próprio.
+**A confirmar no editor** (não tenho acesso ao schema): o nome real do campo
+de telefone do `User` — a doc antiga chama de `whatsapp`. Se houver mais de um
+(ex.: `whatsapp` e `telefone`), concatene os dois na coluna `telefones`
+separados por vírgula: o n8n já trata campo com vários números.
 
 ---
 
@@ -145,7 +161,7 @@ cache no sucesso e loga quando dá ambiguidade.
 
 | `status` | O que fazer |
 |---|---|
-| `ok` | Segue para o agente com `fk_usuario` e `fk_empresa` do resultado — fim dos valores hardcoded |
+| `ok` | Segue para o agente com `fk_usuario`, `fk_empresa_atual` e `empresas` — fim dos valores hardcoded |
 | `nao_encontrado` | "Olá! Não encontrei seu número aqui no Meu Pescado. Confira com o administrador da sua fazenda se o telefone cadastrado é este mesmo." |
 | `ambiguo` | "Não consegui confirmar seu cadastro. Já avisei o suporte, em breve alguém te procura." + alerta interno (é telefone duplicado em dois `User`) |
 | `erro_busca_truncada` | Mesma mensagem de `ambiguo`. É falha técnica, não do usuário |
@@ -163,41 +179,46 @@ partir daí "estar identificado" passa a ser a própria trava.
 
 ## 4. Teste
 
-**Antes de mexer no n8n**, direto no endpoint (version-test):
+O teste é **pelo WhatsApp**, mandando mensagem de verdade. Não precisa de
+terminal: o log de execução do n8n mostra a resposta crua do Bubble, que é
+justamente o que se quer inspecionar.
 
-```bash
-BASE="https://app.meupescado.com.br/version-test/api/1.1/wf"
-TOKEN="<API_TOKEN>"
+**Roteiro:** monte o endpoint → monte os nós do n8n → mande uma mensagem
+qualquer do número do piloto → abra a execução no n8n.
 
-# 1. Últimos 4 dígitos do Pablo → deve voltar o cadastro dele
-curl -s -X POST "$BASE/ag_identificar_usuario" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"fone4": "5045"}'
+No nó **HTTP Request "ag_identificar_usuario"**, aba *Output*, confira:
 
-# 2. Sequência inexistente → qtd 0
-curl -s -X POST "$BASE/ag_identificar_usuario" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"fone4": "0000"}'
-```
+| O que olhar | Esperado | Se vier diferente |
+|---|---|---|
+| `itens` | Traz o telefone **com a máscara** (`(48) 8411-5045`) | Se vier vazio, o campo de telefone tem outro nome — ajuste a constraint |
+| `qtd` | `1` | Se vier alto (dezenas), a base é maior do que supus: me avise que a gente reconsidera o campo normalizado |
+| `empresa_atual_id` | Preenchido | Vazio = o campo da fazenda logada tem outro nome |
+| `empresas` | `id:Nome^id:Nome` | Vazio = o vínculo não é `fk_lista_empresas` |
 
-O que olhar na resposta do teste 1: se `itens` traz o telefone **com a máscara
-do cadastro**, o desenho está certo — é justamente o que o n8n sabe tratar. Se
-`qtd` vier alto (dezenas), me avise: quer dizer que a base é maior do que eu
-supus e vale reconsiderar o campo normalizado.
+No nó **"Validar identificação"**, aba *Output*: `status` deve ser `ok`, com
+`fk_usuario`, `fk_empresa_atual` e `empresas` — vindos da busca, não do
+hardcode. É esse o critério de pronto do Item 1.
 
-Lembre que o Bubble **omite chaves de valor vazio**: com 0 resultados, `itens`
-pode nem aparecer. O código já trata (`parseLista({})` → `[]`, testado).
+Vale mandar uma segunda mensagem logo em seguida: a execução deve mostrar
+`cache_hit: true` e **nem chamar** o Bubble. Se chamar, o cache não pegou.
 
-**Depois do n8n atualizado**, ponta a ponta pelo WhatsApp com o número do
-piloto, conferindo no log de execução que `fk_usuario`/`fk_empresa` vieram da
-busca e não do hardcode. E rode os testes 1, 3 e 5 de vazamento do
-`05-seguranca-multitenant.md`.
+Casos que valem testar depois, ainda pelo WhatsApp:
+
+| Teste | Esperado |
+|---|---|
+| Mensagem de um número não cadastrado | "não encontrei seu número" — e **zero** chamada de LLM (teste #5 de vazamento) |
+| Perguntar por um tanque que é de outra fazenda sua | Responde dizendo de qual fazenda é |
+| Perguntar por um tanque que não existe em nenhuma | Diz que não achou e em quais fazendas procurou |
+
+> Lembre que o Bubble **omite chaves de valor vazio**: com 0 resultados,
+> `itens` pode nem aparecer na resposta. O código já trata isso
+> (`parseLista({})` → `[]`, testado).
 
 ---
 
 ## 5. Casos cobertos por teste automatizado
 
-`npm test` — 21 casos em [`n8n/lib/telefone.test.js`](../n8n/lib/telefone.test.js):
+`npm test` — 22 casos de telefone em [`n8n/lib/telefone.test.js`](../n8n/lib/telefone.test.js):
 
 | Caso | Comportamento |
 |---|---|

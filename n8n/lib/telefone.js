@@ -79,14 +79,33 @@ function identificar(candidatos, alvo, meta = {}) {
   }
 
   const u = finais[0];
+  const empresas = parseEmpresas(u.empresas);
   return {
     status: 'ok',
     fk_usuario: u.usuario_id,
-    fk_empresa: u.empresa_id,
     usuario_nome: u.usuario_nome,
-    empresa_nome: u.empresa_nome,
+    // Fazenda logada no app: preferência de busca, não fronteira.
+    fk_empresa_atual: u.empresa_atual_id,
+    empresa_atual_nome: u.empresa_atual_nome,
+    // Fronteira de permissão de verdade.
+    empresas,
     match: u.forca,
   };
+}
+
+// Coluna "empresas" vem como "id:Nome^id:Nome" (o ':' separa só o primeiro
+// pedaço, porque nome de fazenda pode conter ':').
+function parseEmpresas(txt) {
+  return String(txt ?? '')
+    .split('^')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const i = p.indexOf(':');
+      return i === -1
+        ? { id: p, nome: '' }
+        : { id: p.slice(0, i).trim(), nome: p.slice(i + 1).trim() };
+    });
 }
 
 // Resposta do Bubble no padrão do projeto: "colunas" + "itens" (| e ;;).
@@ -103,4 +122,4 @@ function parseLista(resp) {
     });
 }
 
-module.exports = { soDigitos, normalizar, separar, casa, identificar, parseLista };
+module.exports = { soDigitos, normalizar, separar, casa, identificar, parseLista, parseEmpresas };

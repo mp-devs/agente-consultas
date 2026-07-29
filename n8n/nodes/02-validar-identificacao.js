@@ -1,13 +1,17 @@
 // ⚠️ GERADO por n8n/build.mjs — não edite aqui.
-// Edite n8n/lib/telefone.js e rode: node n8n/build.mjs
+// Edite a lib em n8n/lib/ e rode: node n8n/build.mjs
 // Cole o conteúdo abaixo no campo "JavaScript" do Code node.
 
+// Workflow: MP - Agente de Consultas
 // Code node: "Validar identificação"  (Run Once for All Items)
 // Entrada: resposta de ag_identificar_usuario (nó HTTP Request anterior).
-// Saída: { status: ok | nao_encontrado | ambiguo | erro_busca_truncada }
-// Só aqui o fk_usuario/fk_empresa do resto do fluxo é definido.
+// Saída: { status, fk_usuario, fk_empresa_atual, empresas[] }
+// O escopo do agente é "empresas" (todas as fazendas autorizadas);
+// fk_empresa_atual é só a preferência de busca.
 
 // Casamento de telefone brasileiro entre o WhatsApp e o cadastro do Bubble.
+// Fonte única da verdade: os arquivos em n8n/nodes/ são gerados a partir daqui
+// por `node n8n/build.mjs` (Code node do n8n não importa módulo local).
 
 const soDigitos = (s) => String(s ?? '').replace(/\D/g, '');
 
@@ -85,14 +89,33 @@ function identificar(candidatos, alvo, meta = {}) {
   }
 
   const u = finais[0];
+  const empresas = parseEmpresas(u.empresas);
   return {
     status: 'ok',
     fk_usuario: u.usuario_id,
-    fk_empresa: u.empresa_id,
     usuario_nome: u.usuario_nome,
-    empresa_nome: u.empresa_nome,
+    // Fazenda logada no app: preferência de busca, não fronteira.
+    fk_empresa_atual: u.empresa_atual_id,
+    empresa_atual_nome: u.empresa_atual_nome,
+    // Fronteira de permissão de verdade.
+    empresas,
     match: u.forca,
   };
+}
+
+// Coluna "empresas" vem como "id:Nome^id:Nome" (o ':' separa só o primeiro
+// pedaço, porque nome de fazenda pode conter ':').
+function parseEmpresas(txt) {
+  return String(txt ?? '')
+    .split('^')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const i = p.indexOf(':');
+      return i === -1
+        ? { id: p, nome: '' }
+        : { id: p.slice(0, i).trim(), nome: p.slice(i + 1).trim() };
+    });
 }
 
 // Resposta do Bubble no padrão do projeto: "colunas" + "itens" (| e ;;).

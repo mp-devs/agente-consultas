@@ -3,7 +3,7 @@
   "private": true,
   "description": "Agente de consultas WhatsApp - Meu Pescado",
   "scripts": {
-    "test": "node --test n8n/lib/telefone.test.js",
+    "test": "node --test n8n/lib/telefone.test.js n8n/lib/escopo.test.js",
     "build": "node n8n/build.mjs"
   }
 }
