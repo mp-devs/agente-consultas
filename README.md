@@ -38,7 +38,7 @@ fazenda vindos do Bubble (app `aprimoreagro`, ~300 fazendas, aquicultura).
 
 | Endpoint | Status |
 |---|---|
-| `ag_identificar_usuario` | ⚠️ versão de fumaça (hardcoded) — ver [docs/ag_identificar_usuario.md](docs/ag_identificar_usuario.md) |
+| `ag_identificar_usuario` | ⚠️ versão de fumaça (hardcoded). Substituição especificada e com código pronto em [docs/ag_identificar_usuario.md](docs/ag_identificar_usuario.md) — falta montar no Bubble |
 | `ag_indice_tanques` | ✅ |
 | `ag_panorama_tanque` | ✅ |
 | `ag_resumo_tanques` | ✅ |
@@ -64,6 +64,29 @@ Trava de piloto: só o número `554884115045` é processado.
 - Parâmetro Bubble tipo `text` não casa com campo do tipo coisa.
 - Bubble omite chaves de valor vazio na resposta.
 - `filtros` como JSON não é legível no Bubble → usar parâmetros `f_*`.
+
+## Estrutura do repositório
+
+```
+docs/                          specs dos endpoints e do fluxo
+n8n/lib/telefone.js            lógica de casamento de telefone (fonte da verdade)
+n8n/lib/telefone.test.js       21 testes, incluindo os de vazamento
+n8n/nodes/*.js                 GERADO — o que se cola nos Code nodes do n8n
+n8n/build.mjs                  gera n8n/nodes/ a partir da lib
+```
+
+```bash
+npm test        # roda os testes
+npm run build   # regenera n8n/nodes/ (obrigatório após mexer na lib)
+```
+
+Code node do n8n não importa módulo local, por isso os arquivos de `n8n/nodes/`
+carregam a lib inlinada. Não edite esses arquivos à mão.
+
+> A branch `claude/bubble-ai-agent-n8n-bmui6k` guarda a iteração anterior
+> (endpoints `ia_*`, schema SQL, system prompt). O desenho atual é outro, mas
+> `docs/05-seguranca-multitenant.md` de lá continua valendo — em especial as
+> 4 camadas de isolamento e os 6 testes de vazamento obrigatórios.
 
 ## Bloqueantes para abrir o piloto
 

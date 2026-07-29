@@ -1,0 +1,9 @@
+{
+  "name": "agente-consultas",
+  "private": true,
+  "description": "Agente de consultas WhatsApp - Meu Pescado",
+  "scripts": {
+    "test": "node --test n8n/lib/telefone.test.js",
+    "build": "node n8n/build.mjs"
+  }
+}
