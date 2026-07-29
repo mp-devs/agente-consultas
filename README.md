@@ -1,7 +1,11 @@
 # Agente de Consultas — Meu Pescado (WhatsApp)
 
 Agente de IA no n8n que responde produtores rurais no WhatsApp com dados da
-fazenda vindos do Bubble (app `aprimoreagro`, ~300 fazendas, aquicultura).
+fazenda vindos do Bubble (app Meu Pescado, ~300 fazendas, aquicultura).
+
+> 📘 **Documentação completa do sistema: [DOCUMENTACAO.md](DOCUMENTACAO.md)**
+> — arquitetura, fluxo ponta a ponta, onde cada coisa está, segurança,
+> armadilhas e pendências. Comece por lá.
 
 ## Arquitetura
 
@@ -40,7 +44,7 @@ fazenda vindos do Bubble (app `aprimoreagro`, ~300 fazendas, aquicultura).
 
 | Endpoint | Status |
 |---|---|
-| `ag_identificar_usuario` | ⚠️ versão de fumaça (hardcoded). Substituição especificada e com código pronto em [docs/ag_identificar_usuario.md](docs/ag_identificar_usuario.md) — falta montar no Bubble |
+| `ag_identificar_usuario` | ✅ busca real por telefone no ar ([docs/ag_identificar_usuario.md](docs/ag_identificar_usuario.md)) |
 | `ag_indice_tanques` | ✅ |
 | `ag_panorama_tanque` | ✅ |
 | `ag_resumo_tanques` | ✅ |
@@ -57,7 +61,9 @@ Ativas: `panorama_tanque`, `resumo_fazenda`, `listar_tanques` (responde do
 índice em cache, zero WU), `estoque_saldo`, `estoque_acabando`.
 Desativadas: `historico_biometria`, `estoque_movimentos`, `estoque_consumo`.
 
-Trava de piloto: só o número `554884115045` é processado.
+Trava de piloto: só os números da lista `PILOTO` (nó `Filtrar mensagem`) são
+processados. Escopo multi-fazenda no ar: o produtor consulta qualquer fazenda
+da sua `fk_lista_empresas`, com a logada como preferência.
 
 ## Armadilhas conhecidas (não repetir)
 
@@ -93,10 +99,9 @@ carregam a lib inlinada. Não edite esses arquivos à mão.
 
 ## Bloqueantes para abrir o piloto
 
-1. **`ag_identificar_usuario` real** buscando `User` por telefone — sem isso
-   qualquer testador vê a fazenda do Pablo. → [docs/ag_identificar_usuario.md](docs/ag_identificar_usuario.md)
-2. Validação `fk_usuario` × `fk_empresa` nos 5 endpoints.
-3. Decidir número dedicado vs. compartilhado com Notificações.
+1. Validação `fk_usuario` × `fk_empresa` nos 5 endpoints Bubble.
+2. Tokens para credencial do n8n + rotação (Bubble e BubbleWhats).
+3. `version-test` → `version-live`.
+4. Teste de vazamento com dois usuários.
 
-Depois: `version-live`, medir WU/conversa, `EXECUTIONS_DATA_PRUNE`, tokens
-para credencial.
+Lista completa e priorizada: [DOCUMENTACAO.md, seção 14](DOCUMENTACAO.md).
