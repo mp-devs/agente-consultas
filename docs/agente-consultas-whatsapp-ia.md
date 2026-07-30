@@ -22,30 +22,35 @@ um backend Bubble. Localização no n8n: **Personal / Agentes de consulta /
 
 | Workflow | ID | Papel |
 |---|---|---|
-| **Whatsapp Consulta - Testes** | `7MBOuRuhi32P9MLQ` | Workflow principal do agente (Chat Trigger + AI Agent) |
+| **Whatsapp Consulta - Testes** (na UI: `Agente IA - Consultas - WhatsApp`) | `7MBOuRuhi32P9MLQ` | Workflow principal do agente (Chat Trigger + AI Agent) |
 | buscar_lotes_ia (com cache) | `XpTduSjhR9ht3O9w` | Sub-workflow: cache + chamada Bubble para lotes |
 | buscar_biometrias_ia (com cache) | `e8ExZ14SMdr48aPv` | Sub-workflow: cache + chamada Bubble para biometrias |
 | buscar_estoques_ia (com cache) | `FOsZKXmb5o4YeuJC` | Sub-workflow: cache + chamada Bubble para estoques |
+| buscar_despescas_ia (com cache) | `jhzLK6zloMhROatk` | Sub-workflow: cache + chamada Bubble para despescas (com trava de validação de período — ver seção 3.1) |
 
 **Data Tables (cache, TTL 5 min):** `cache_lotes` (`vjCzL22BC3VY4p5S`),
-`cache_biometrias` (`RXegjCq83mrP4QfG`), `cache_estoques` (`PvuYr3YSwsymqh7y`).
-Projeto n8n: `bBqGPNbLWK26DTft` (Personal).
+`cache_biometrias` (`RXegjCq83mrP4QfG`), `cache_estoques` (`PvuYr3YSwsymqh7y`),
+`cache_despescas` (`f4gODjP45NpYNeTj`). Projeto n8n: `bBqGPNbLWK26DTft`
+(Personal).
 
 **Endpoints Bubble**
 (`https://app.meupescado.com.br/version-test/api/1.1/wf/<nome>`):
-`buscar_lotes_ia`, `buscar_biometrias_ia`, `buscar_estoques_ia`. Auth: Bearer
-token fixo + `fkEmpresa` fixo — hoje hardcoded no node HTTP Request (flag de
-segurança: idealmente migrar para uma credential do n8n).
+`buscar_lotes_ia`, `buscar_biometrias_ia`, `buscar_estoques_ia`,
+`buscar_despescas_ia`. Auth: Bearer token fixo + `fkEmpresa` fixo — hoje
+hardcoded no node HTTP Request (flag de segurança: idealmente migrar para uma
+credential do n8n).
 
 **Nodes principais do workflow principal:**
-- `Agente - Consultas` — AI Agent (system message gigante, ver seção 4)
+- `Agente - Consultas` — AI Agent (system message gigante, ver seção 6)
 - `Modelo` — OpenAI Chat Model (gpt-5-mini)
 - `Memória` — buffer de memória de conversa
 - `Parser - Estoques` — Structured Output Parser (ver seção 5)
 - `Gate - Estoques por Tipo` — Code node determinístico pós-agente (ver seção 5)
-- Tool nodes (`toolWorkflow`): `buscar_lotes_ia`, `buscar_biometrias_ia`, `buscar_estoques_ia`
+- Tool nodes (`toolWorkflow`): `busca_lotes` (nome do node; chama
+  `buscar_lotes_ia`), `buscar_biometrias_ia`, `buscar_estoques_ia`,
+  `buscar_despescas_ia`
 
-## 3. Arquitetura de cada tool (padrão repetido nos 3 sub-workflows)
+## 3. Arquitetura de cada tool (padrão repetido nos 4 sub-workflows)
 
 ```
 Execute Workflow Trigger (recebe filtros como strings)
@@ -62,9 +67,40 @@ Execute Workflow Trigger (recebe filtros como strings)
             → Code "Retornar dado fresco": lê o array do node anterior e devolve N itens
 ```
 
-Datas (`data` em biometrias, `ultima_entrada.data` em estoques) chegam do
-Bubble como timestamp epoch em ms — **sempre formatadas no n8n**
-(`dd/mm/aaaa`), nunca deixadas para o LLM calcular (ele errava a conversão).
+Datas (`data` em biometrias, `ultima_entrada.data` em estoques, `data_despesca`
+em despescas) chegam do Bubble como timestamp epoch em ms — **sempre
+formatadas no n8n** (`dd/mm/aaaa`), nunca deixadas para o LLM calcular (ele
+errava a conversão).
+
+### 3.1 Variante em `buscar_despescas_ia`: trava de validação de período
+
+O endpoint `buscar_despescas_ia` (parâmetros: `fkEmpresa`, `data_de`,
+`data_ate`, `ids_tanques`, `ids_lotes`) **ignora filtros vazios no Bubble** —
+se o agente chamasse a tool sem `data_de`/`data_ate`, o Bubble devolveria
+**todas** as despescas já cadastradas da fazenda (algumas fazendas têm
+milhares). Por isso o sub-workflow tem um node extra antes do fluxo de cache
+normal:
+
+- **`Validar e montar cache_key`** (Code, substitui o "Montar cache_key" das
+  outras tools): além de montar a `cache_key`, valida que `data_de`/`data_ate`
+  não estão vazios, que as datas são parseáveis, que `data_ate >= data_de` e
+  que o intervalo entre elas **não passa de 90 dias** (decisão do usuário —
+  ver seção 8 sobre a escolha desse número). Marca `valido`/`erro_mensagem`.
+- **`Parâmetros válidos?`** (IF logo após): se inválido, vai direto para
+  **`Retornar erro de validação`** (`{erro: true, mensagem: "..."}`), **sem
+  tocar no cache nem no Bubble**. Se válido, segue o fluxo normal de cache
+  (Buscar cache → Verificar validade → Cache válido? → cache ou Bubble).
+
+O prompt do agente (seção 3.4/6-C/11 do system message) instrui a sempre
+preencher `data_de`/`data_ate` e nunca pedir mais de 90 dias — mas essa trava
+no código é a garantia real (defesa em profundidade), igual ao padrão do Gate
+de estoques (seção 5): nunca confiar só no prompt para uma regra de
+segurança/performance.
+
+Testado com `test_workflow` (pin data): fluxo feliz (cache miss → Bubble →
+agrega → cacheia → retorna; 2ª chamada dentro do TTL → bate no cache),
+`data_de`/`data_ate` vazios → erro sem chamar Bubble, intervalo de 1 ano →
+erro sem chamar Bubble.
 
 ## 4. Bugs reais encontrados e corrigidos
 
@@ -90,6 +126,16 @@ Bubble como timestamp epoch em ms — **sempre formatadas no n8n**
    "tanque 8" → "Viveiro (10)"). Mitigado com regra explícita no prompt: só
    aceitar resultado único se bater com os critérios de equivalência (seção
    4 e 6-B do prompt).
+6. **`update_workflow` (MCP) com operação `setNodeParameter` (JSON Pointer)
+   falha silenciosamente para valores muito grandes** (testado com o system
+   message de ~46 KB do agente): a chamada retorna sucesso
+   (`appliedOperations: 1`), mas o conteúdo do node **não muda** — só se
+   percebe relendo o workflow depois. **Corrigido/contornado** usando
+   `updateNodeParameters` (passando o objeto `parameters` inteiro, ex.
+   `{options: {systemMessage: "..."}}`) em vez de `setNodeParameter` — nesse
+   caso a atualização aplicou corretamente. Lição: depois de qualquer
+   `update_workflow` em um campo grande, **sempre reler o workflow para
+   confirmar** que o valor realmente mudou antes de publicar.
 
 ## 5. Camada de segurança extra (Output Parser + Gate determinístico)
 
@@ -113,33 +159,46 @@ estoques do mesmo tipo". Para isso:
 
 - **Topo:** data/hora atual injetada via expressão
   (`{{ $now.setZone('America/Sao_Paulo')... }}`) — agente calcula "essa
-  semana", "esse mês" etc. sozinho, nunca pergunta a data de hoje.
+  semana", "esse mês" etc. sozinho, nunca pergunta a data de hoje. Também usada
+  para calcular `data_de`/`data_ate` de `buscar_despescas_ia`.
 - **Seção 2:** modelo de dados — TANQUE, LOTE (registro por tanque), LOTE-PAI
   (`id_lote_pai` agrupa tanques do mesmo lote dividido), ESTOQUE
   (`tipo_estoque`, `status_estoque`).
-- **Seção 3:** as 3 ferramentas, parâmetros e campos retornados (3.1 lotes,
-  3.2 biometrias, 3.3 estoques).
+- **Seção 3:** as 4 ferramentas, parâmetros e campos retornados (3.1 lotes,
+  3.2 biometrias, 3.3 estoques, **3.4 despescas**).
+- **Seção 3.4 (despescas):** `data_de`/`data_ate` são **obrigatórios** (nunca
+  vazios, intervalo máx. 90 dias — regra de segurança, ver seção 3 do doc
+  técnico acima); `ids_lotes`/`ids_tanques` opcionais para filtrar por
+  tanque/lote específico; campos retornados incluem `tipo_despesca`
+  (Parcial/Completo), `especie_despescada`, `fase_despescada`,
+  `valor_lucro`/`valor_venda`, etc.
 - **Seção 4:** procedimento obrigatório de busca por nome (tanque/lote/
   estoque), com regras de equivalência (zeros à esquerda, acentos,
   parênteses etc.) e proteção contra resultado único implausível.
-- **Seção 5:** roteiro de decisão A–L (cada tipo de pergunta → qual
-  tool/filtro usar).
-- **Seção 6 / 6-B:** lote dividido entre tanques (perguntar separado vs.
+- **Seção 5:** roteiro de decisão A–O (cada tipo de pergunta → qual
+  tool/filtro usar) — itens **M/N/O** cobrem despescas (geral por período,
+  por tanque/lote, combinando os dois).
+- **Seção 6 / 6-B / 6-C:** lote dividido entre tanques (perguntar separado vs.
   agrupado; soma simples para a maioria dos campos, média ponderada por
   população para biometria/sobrevivência) e resolução de `id_lote` para
-  consultar biometrias.
-- **Seção 7 / 7-A:** regras de preenchimento de parâmetros e reaproveitamento
+  consultar biometrias (6-B) e despescas (6-C, mesma lógica).
+- **Seção 7 / 7-A:** regras de preenchimento de parâmetros (item 7: nunca
+  chamar despescas com datas vazias/intervalo > 90 dias) e reaproveitamento
   de dado já buscado na mesma conversa (não repetir chamada idêntica, exceto
   sinal de dado desatualizado).
 - **Seções 9–12:** formato de resposta, casos especiais, regras
-  inegociáveis (lista numerada) e ~17 exemplos (incluindo exemplos de erro a
-  evitar).
+  inegociáveis (lista numerada, item 16 = trava de despescas) e ~21 exemplos
+  (incluindo exemplos de erro a evitar, 18–21 são de despescas).
 - Regra-chave sobre estoques: `tipo_estoque` e `status_estoque` **não são
   parâmetros filtráveis** da tool — sempre buscar tudo (`nomes_estoques=[]`)
   e filtrar no código/raciocínio. Pergunta por **tipo** ("quanto tenho de
   ração") com 2+ resultados → só pergunta, zero números (reforçado pelo
   Gate). Pergunta por **status** ("o que está com baixo estoque") → é
   listagem, responde direto sem perguntar.
+- Regra-chave sobre despescas: `data_de`/`data_ate` **sempre preenchidos**
+  (mesmo sem período explícito do usuário — assume um recorte razoável, ex.
+  90 dias) e **nunca mais de 90 dias de intervalo**; reforçado pela trava de
+  código da seção 3.1 do doc técnico (não depende só do prompt).
 
 ## 7. ClickUp
 
@@ -189,7 +248,7 @@ estoques do mesmo tipo". Para isso:
 | Criar consultas de tanques e lotes | `868kj2bbk` | DESCRIÇÃO + SOLUÇÃO + TESTE completos |
 | Criar consultas de biometrias | `868kj2gdk` | DESCRIÇÃO + SOLUÇÃO TÉCNICA + TESTE completos |
 | Criar agente principal | `868kj2j85` | Só DESCRIÇÃO (SOLUÇÃO TÉCNICA/TESTE apagados de propósito — ver convenção acima; preencher só quando todas as consultas estiverem prontas) |
-| Criar consultas de despescas | `868kj2mxe` | Só DESCRIÇÃO (feature não implementada) |
+| Criar consultas de despescas | `868kj2mxe` | **Implementada** — pendente atualizar a task com SOLUÇÃO TÉCNICA + TESTE (ver seção 8) |
 | Criar consultas de análise de água | `868kj2phg` | Só DESCRIÇÃO (feature não implementada) |
 | Criar consultas do financeiro | `868kj2tet` | Só DESCRIÇÃO (feature não implementada) |
 | Configurar integração com o WhatsApp | `868kj2vuy` | Só DESCRIÇÃO (feature não implementada) |
@@ -197,9 +256,17 @@ estoques do mesmo tipo". Para isso:
 
 ## 8. Próximo passo
 
-Tasks de planejamento criadas no ClickUp (tabela acima). Conforme cada
-funcionalidade pendente (despescas, análise de água, financeiro, integração
-WhatsApp, autenticação/escolha de empresa) for implementada no n8n/Bubble,
-voltar na task correspondente e preencher SOLUÇÃO TÉCNICA + TESTE. A task do
-"Agente principal" só recebe SOLUÇÃO TÉCNICA/TESTE depois que todas as
-consultas planejadas estiverem prontas.
+- **Despescas foi implementada** (sub-workflow `buscar_despescas_ia`
+  `jhzLK6zloMhROatk`, Data Table `cache_despescas`, tool conectada ao agente
+  principal, system message atualizado, ambos publicados/ativos e testados
+  via `test_workflow`). **Falta**: atualizar a task `868kj2mxe` no ClickUp
+  com SOLUÇÃO TÉCNICA + TESTE.
+- Limite de 90 dias para o período de despescas foi uma decisão explícita do
+  usuário (opções avaliadas: 90/180/365 dias) — não é um valor arbitrário,
+  não mudar sem confirmar de novo.
+- Demais tasks de planejamento seguem pendentes: análise de água, financeiro,
+  integração WhatsApp, autenticação/escolha de empresa. Conforme cada uma for
+  implementada no n8n/Bubble, voltar na task correspondente e preencher
+  SOLUÇÃO TÉCNICA + TESTE.
+- A task "Agente principal" só recebe SOLUÇÃO TÉCNICA/TESTE depois que todas
+  as consultas planejadas estiverem prontas.
