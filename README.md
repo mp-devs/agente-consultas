@@ -74,3 +74,9 @@ Trava de piloto: só o número `554884115045` é processado.
 
 Depois: `version-live`, medir WU/conversa, `EXECUTIONS_DATA_PRUNE`, tokens
 para credencial.
+
+## Outros projetos neste repositório
+
+Este repo também guarda o contexto de outra linha de trabalho da Meu Pescado,
+com arquitetura diferente (LLM decide a tool, cache em Data Tables): ver
+[docs/agente-consultas-whatsapp-ia.md](docs/agente-consultas-whatsapp-ia.md).
