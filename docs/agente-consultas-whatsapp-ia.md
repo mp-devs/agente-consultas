@@ -102,6 +102,15 @@ agrega → cacheia → retorna; 2ª chamada dentro do TTL → bate no cache),
 `data_de`/`data_ate` vazios → erro sem chamar Bubble, intervalo de 1 ano →
 erro sem chamar Bubble.
 
+**Decisão do usuário (2026-07-30, após teste real):** quando o usuário não
+especifica um período (ex: "quanto despesquei do Tanque (08)?"), o agente
+**nunca deve assumir um recorte padrão sozinho** (nem os 90 dias máximos,
+nem qualquer outro) — ele deve **perguntar qual período o cliente quer ver**
+(hoje, essa semana, esse mês, etc.) antes de chamar a tool. Isso foi
+implementado no prompt (seção 3.4, itens M/N da seção 5, seção 6-C, regra
+17) depois que o comportamento anterior (assumir 90 dias) gerou uma resposta
+ruim num teste real (ver bug #7 abaixo).
+
 ## 4. Bugs reais encontrados e corrigidos
 
 1. **`alwaysOutputData` não persiste** quando definido via SDK
@@ -127,15 +136,40 @@ erro sem chamar Bubble.
    aceitar resultado único se bater com os critérios de equivalência (seção
    4 e 6-B do prompt).
 6. **`update_workflow` (MCP) com operação `setNodeParameter` (JSON Pointer)
-   falha silenciosamente para valores muito grandes** (testado com o system
-   message de ~46 KB do agente): a chamada retorna sucesso
-   (`appliedOperations: 1`), mas o conteúdo do node **não muda** — só se
-   percebe relendo o workflow depois. **Corrigido/contornado** usando
-   `updateNodeParameters` (passando o objeto `parameters` inteiro, ex.
-   `{options: {systemMessage: "..."}}`) em vez de `setNodeParameter` — nesse
-   caso a atualização aplicou corretamente. Lição: depois de qualquer
-   `update_workflow` em um campo grande, **sempre reler o workflow para
-   confirmar** que o valor realmente mudou antes de publicar.
+   falha silenciosamente** — testado com o system message de ~46 KB do
+   agente (falhou) e depois confirmado que também falha com um valor pequeno
+   (~1 KB, a `description` da tool `buscar_despescas_ia`): a chamada retorna
+   sucesso (`appliedOperations: 1`), mas o conteúdo do node **não muda** — só
+   se percebe relendo o workflow depois. Não é um problema de tamanho, é o
+   `setNodeParameter` que não é confiável neste MCP. **Corrigido/contornado**
+   usando sempre `updateNodeParameters` (passando o objeto `parameters`
+   inteiro, ex. `{options: {systemMessage: "..."}}`) em vez de
+   `setNodeParameter` — nesse caso a atualização sempre aplicou
+   corretamente. **Lição: nunca usar `setNodeParameter` neste projeto; usar
+   `updateNodeParameters` sempre, e reler o workflow depois de qualquer
+   `update_workflow` para confirmar** que o valor realmente mudou antes de
+   publicar.
+7. **`buscar_despescas_ia` quebrava com "The workflow did not return a
+   response"** quando a busca (dentro de um período válido, ≤ 90 dias) não
+   encontrava nenhuma despesca: o sub-workflow retornava **0 itens** (arrays
+   vazios em `Retornar do cache`/`Retornar dado fresco`), e o node
+   `toolWorkflow` que chama esse sub-workflow trata 0 itens como falha,
+   travando a resposta do agente para o usuário. Reproduzido em teste real
+   (usuário perguntou "Quanto despesquei do Tanque (08)?", agente calculou um
+   período de 90 dias, a busca deu vazio, e o agente reportou um erro).
+   **Corrigido** fazendo `Retornar do cache` e `Retornar dado fresco`
+   devolverem sempre pelo menos 1 item — `{total_encontrado: 0, mensagem:
+   "..."}` quando o array de registros está vazio — em vez de `[]`. O prompt
+   do agente (seção 3.4, regra 18, exemplo 22) foi atualizado para tratar
+   esse formato como resultado válido ("não encontrei despescas"), não como
+   erro.
+   > ⚠️ **Risco não corrigido ainda:** as outras três tools
+   > (`buscar_lotes_ia`, `buscar_biometrias_ia`, `buscar_estoques_ia`) têm o
+   > mesmo padrão de código em `Retornar do cache`/`Retornar dado fresco`
+   > (`arr.map(...)`/`registros.map(...)` sem tratar array vazio) e
+   > provavelmente têm o mesmo bug quando uma busca legítima não encontra
+   > nada. Ainda não reproduzido nem corrigido nessas três — decisão de
+   > escopo do usuário foi focar em despescas primeiro.
 
 ## 5. Camada de segurança extra (Output Parser + Gate determinístico)
 
@@ -168,10 +202,14 @@ estoques do mesmo tipo". Para isso:
   3.2 biometrias, 3.3 estoques, **3.4 despescas**).
 - **Seção 3.4 (despescas):** `data_de`/`data_ate` são **obrigatórios** (nunca
   vazios, intervalo máx. 90 dias — regra de segurança, ver seção 3 do doc
-  técnico acima); `ids_lotes`/`ids_tanques` opcionais para filtrar por
-  tanque/lote específico; campos retornados incluem `tipo_despesca`
-  (Parcial/Completo), `especie_despescada`, `fase_despescada`,
-  `valor_lucro`/`valor_venda`, etc.
+  técnico acima), mas **o agente nunca assume esse período sozinho** — se o
+  usuário não especificou quando, ele pergunta (hoje/essa semana/esse mês/
+  outro) antes de chamar a tool; `ids_lotes`/`ids_tanques` opcionais para
+  filtrar por tanque/lote específico; campos retornados incluem
+  `tipo_despesca` (Parcial/Completo), `especie_despescada`, `fase_despescada`,
+  `valor_lucro`/`valor_venda`, etc.; resultado vazio vem como
+  `{total_encontrado: 0, mensagem}` e não deve ser tratado como erro (ver
+  bug #7 do doc técnico).
 - **Seção 4:** procedimento obrigatório de busca por nome (tanque/lote/
   estoque), com regras de equivalência (zeros à esquerda, acentos,
   parênteses etc.) e proteção contra resultado único implausível.
@@ -256,17 +294,30 @@ estoques do mesmo tipo". Para isso:
 
 ## 8. Próximo passo
 
-- **Despescas foi implementada** (sub-workflow `buscar_despescas_ia`
-  `jhzLK6zloMhROatk`, Data Table `cache_despescas`, tool conectada ao agente
-  principal, system message atualizado, ambos publicados/ativos e testados
-  via `test_workflow`). **Falta**: atualizar a task `868kj2mxe` no ClickUp
-  com SOLUÇÃO TÉCNICA + TESTE.
+- **Despescas foi implementada e testada em conversa real** (sub-workflow
+  `buscar_despescas_ia` `jhzLK6zloMhROatk`, Data Table `cache_despescas`, tool
+  conectada ao agente principal, system message atualizado, ambos
+  publicados/ativos). Durante o teste real foram encontrados e corrigidos:
+  o bug de "workflow did not return a response" em busca vazia (bug #7 da
+  seção 4) e o comportamento de assumir um período padrão em vez de perguntar
+  (ver decisão registrada na seção 3.1). Ambos corrigidos e revalidados via
+  `execute_workflow` simulando a conversa exata do teste do usuário.
+  **Combinado com o usuário: NÃO atualizar a task `868kj2mxe` no ClickUp
+  ainda** — ele vai avisar quando puder seguir para essa etapa (foco atual é
+  testar/melhorar o agente).
+- **Risco em aberto, ainda não corrigido**: o mesmo bug de "0 itens = erro"
+  (bug #7) provavelmente afeta `buscar_lotes_ia`, `buscar_biometrias_ia` e
+  `buscar_estoques_ia` também, sempre que uma busca legítima não encontrar
+  nada (ex: perguntar por um tanque/lote/estoque que existe mas não bate com
+  nenhum filtro). Ainda não testado nem corrigido nessas três — perguntar ao
+  usuário se quer que sejam corrigidas também antes de continuar os testes.
 - Limite de 90 dias para o período de despescas foi uma decisão explícita do
   usuário (opções avaliadas: 90/180/365 dias) — não é um valor arbitrário,
   não mudar sem confirmar de novo.
 - Demais tasks de planejamento seguem pendentes: análise de água, financeiro,
   integração WhatsApp, autenticação/escolha de empresa. Conforme cada uma for
   implementada no n8n/Bubble, voltar na task correspondente e preencher
-  SOLUÇÃO TÉCNICA + TESTE.
+  SOLUÇÃO TÉCNICA + TESTE (quando o usuário sinalizar para seguir com o
+  ClickUp).
 - A task "Agente principal" só recebe SOLUÇÃO TÉCNICA/TESTE depois que todas
   as consultas planejadas estiverem prontas.
