@@ -165,12 +165,41 @@ estoques do mesmo tipo". Para isso:
      recém-criado.
   3. `clickup_update_task` (`markdown_description`) substituindo o texto de
      instrução de cada seção pelo conteúdo real, mantendo os cabeçalhos
-     `**DESCRIÇÃO**` / `**SOLUÇÃO**` / `**TESTE**`.
+     `**DESCRIÇÃO**` / `**SOLUÇÃO TÉCNICA**` / `**TESTE**`.
+     > Cabeçalho mudou de `**SOLUÇÃO**` para `**SOLUÇÃO TÉCNICA**` a partir da
+     > task de biometrias — usar esse a partir de agora.
+- **Tasks ainda não implementadas** (funcionalidade não existe no agente):
+  preencher **só a DESCRIÇÃO**, deixando SOLUÇÃO TÉCNICA e TESTE de fora até
+  a implementação acontecer — não criar os cabeçalhos vazios, só a
+  DESCRIÇÃO mesmo.
+- **Convenção especial para a task "Agente principal"**: como novas
+  consultas vão sendo adicionadas o tempo todo, a SOLUÇÃO TÉCNICA/TESTE
+  dessa task específica ficaria desatualizada rápido demais. Decisão do
+  usuário: deixar SOLUÇÃO TÉCNICA e TESTE **em branco** nessa task até que
+  todas as consultas planejadas estejam implementadas — só então preencher
+  de uma vez, já refletindo o estado final.
 - Tasks de teste criadas em sessão anterior (o usuário apaga manualmente):
   `868kj08gj`, `868kj092c`, `868kj09z6`, `868kj0atk`.
 
+### Tasks reais criadas (Sprint 15)
+
+| Task | ID | Status do conteúdo |
+|---|---|---|
+| Criar consultas de estoques | `868kj183c` | DESCRIÇÃO + SOLUÇÃO TÉCNICA + TESTE completos |
+| Criar consultas de tanques e lotes | `868kj2bbk` | DESCRIÇÃO + SOLUÇÃO + TESTE completos |
+| Criar consultas de biometrias | `868kj2gdk` | DESCRIÇÃO + SOLUÇÃO TÉCNICA + TESTE completos |
+| Criar agente principal | `868kj2j85` | Só DESCRIÇÃO (SOLUÇÃO TÉCNICA/TESTE apagados de propósito — ver convenção acima; preencher só quando todas as consultas estiverem prontas) |
+| Criar consultas de despescas | `868kj2mxe` | Só DESCRIÇÃO (feature não implementada) |
+| Criar consultas de análise de água | `868kj2phg` | Só DESCRIÇÃO (feature não implementada) |
+| Criar consultas do financeiro | `868kj2tet` | Só DESCRIÇÃO (feature não implementada) |
+| Configurar integração com o WhatsApp | `868kj2vuy` | Só DESCRIÇÃO (feature não implementada) |
+| Criar fluxo de autenticação e escolha de empresa | `868kj2wre` | Só DESCRIÇÃO (feature não implementada) |
+
 ## 8. Próximo passo
 
-Documentar (em tasks reais no ClickUp, seguindo o fluxo da seção 7) o que foi
-construído: as 3 ferramentas, o fix de cache, o Output Parser/Gate etc. —
-títulos e conteúdo a definir com o usuário.
+Tasks de planejamento criadas no ClickUp (tabela acima). Conforme cada
+funcionalidade pendente (despescas, análise de água, financeiro, integração
+WhatsApp, autenticação/escolha de empresa) for implementada no n8n/Bubble,
+voltar na task correspondente e preencher SOLUÇÃO TÉCNICA + TESTE. A task do
+"Agente principal" só recebe SOLUÇÃO TÉCNICA/TESTE depois que todas as
+consultas planejadas estiverem prontas.
